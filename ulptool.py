@@ -79,9 +79,10 @@ def show_header():
     subtitle = "PSL-aware • Huge-file streaming • Disk dedupe • 2026 UI"
     if USE_RICH:
         console.print(Panel.fit(
-            f"{subtitle}\n\n[italic]{BRAND}[/italic]",
-            title=f"[bold white]{APP_NAME}[/bold white]",
-            border_style="white"
+            f"[cyan]{subtitle}[/cyan]\n\n[dim italic]{BRAND}[/dim italic]",
+            title=f"[bold bright_cyan]⚡ {APP_NAME} ⚡[/bold bright_cyan]",
+            border_style="bright_blue",
+            padding=(1, 2)
         ))
     else:
         print(f"{APP_NAME}\n{subtitle}\n{BRAND}\n")
@@ -331,11 +332,11 @@ def save_domains(domains_list):
     except Exception: return False
 
 def prompt_domains_input():
-    msg=("Type the domains (comma-separated)\n"
-         "Examples: capcut.com, dropbox.com, com.facebook.katana")
+    msg=("[cyan]Type the domains (comma-separated)[/cyan]\n\n"
+         "[dim]Examples: capcut.com, dropbox.com, com.facebook.katana[/dim]")
     if USE_RICH:
-        console.print(Panel.fit(msg, title="Domains", border_style="cyan"))
-        raw=Prompt.ask("[bold]Input[/bold]").strip()
+        console.print(Panel.fit(msg, title="[bold bright_green]📋 Domains[/bold bright_green]", border_style="green", padding=(1, 2)))
+        raw=Prompt.ask("[bold bright_white]➜[/bold bright_white]").strip()
     else:
         print(msg); raw=input("> ").strip()
     toks=[t for t in (raw.split(',') if raw else []) if t.strip()]
@@ -345,23 +346,23 @@ def prompt_domains_input():
 def prompt_domain_strategy():
     saved=load_saved_domains()
     if saved:
-        options=("1) Use saved list\n"
-                 "2) Add/merge new domains into saved list (then use merged)\n"
-                 "3) Replace saved list with new domains (then use new)\n"
-                 "4) Use a one-time list (do not save)")
-        if USE_RICH: console.print(Panel.fit(options, title="Domain list options", border_style="magenta")); ch=Prompt.ask("Choose [1-4]").strip()
+        options=("[bright_white]1)[/bright_white] Use saved list\n"
+                 "[bright_white]2)[/bright_white] Add/merge new domains into saved list (then use merged)\n"
+                 "[bright_white]3)[/bright_white] Replace saved list with new domains (then use new)\n"
+                 "[bright_white]4)[/bright_white] Use a one-time list (do not save)")
+        if USE_RICH: console.print(Panel.fit(options, title="[bold bright_magenta]🔧 Domain List Options[/bold bright_magenta]", border_style="magenta", padding=(1, 2))); ch=Prompt.ask("[bold bright_white]Choose[/bold bright_white] [dim][1-4][/dim]").strip()
         else: print(options); ch=input("> ").strip()
         while ch not in {"1","2","3","4"}:
-            (console.print("[red]Please choose 1–4.[/red]") if USE_RICH else print("Please choose 1–4."))
+            (console.print("[bold red]⚠ Please choose 1–4.[/bold red]") if USE_RICH else print("Please choose 1–4."))
             ch=input("> ").strip()
     else:
-        options=("No saved domain list found.\n"
-                 "3) Create and use a new saved list\n"
-                 "4) Use a one-time list (do not save)")
-        if USE_RICH: console.print(Panel.fit(options, title="Domain list options", border_style="magenta")); ch=Prompt.ask("Choose [3-4]").strip()
+        options=("[yellow]No saved domain list found.[/yellow]\n\n"
+                 "[bright_white]3)[/bright_white] Create and use a new saved list\n"
+                 "[bright_white]4)[/bright_white] Use a one-time list (do not save)")
+        if USE_RICH: console.print(Panel.fit(options, title="[bold bright_magenta]🔧 Domain List Options[/bold bright_magenta]", border_style="magenta", padding=(1, 2))); ch=Prompt.ask("[bold bright_white]Choose[/bold bright_white] [dim][3-4][/dim]").strip()
         else: print(options); ch=input("> ").strip()
         while ch not in {"3","4"}:
-            (console.print("[red]Please choose 3 or 4.[/red]") if USE_RICH else print("Please choose 3 or 4."))
+            (console.print("[bold red]⚠ Please choose 3 or 4.[/bold red]") if USE_RICH else print("Please choose 3 or 4."))
             ch=input("> ").strip()
     return ch, saved
 
@@ -390,10 +391,14 @@ FROM entries GROUP BY domain ORDER BY founds DESC;"""
 SELECT_DOMAIN_ROWS = "SELECT username, password FROM entries WHERE domain = ?;"
 
 def ask_sorting_choice():
-    text = "Choose sorting type:\n  1) email:pass\n  2) phone/number:pass\n  3) all (email, phone, numeric IDs)\n  4) user:pass (any username - no filtering)"
+    text = ("[cyan]Choose sorting type:[/cyan]\n\n"
+            "[bright_white]1)[/bright_white] email:pass\n"
+            "[bright_white]2)[/bright_white] phone/number:pass\n"
+            "[bright_white]3)[/bright_white] all (email, phone, numeric IDs)\n"
+            "[bright_white]4)[/bright_white] user:pass (any username - no filtering)")
     if USE_RICH:
-        console.print(Panel.fit(text, title="Sorting", border_style="green"))
-        ch=Prompt.ask("Choose [1-4]").strip()
+        console.print(Panel.fit(text, title="[bold bright_green]🔍 Sorting Mode[/bold bright_green]", border_style="green", padding=(1, 2)))
+        ch=Prompt.ask("[bold bright_white]Choose[/bold bright_white] [dim][1-4][/dim]").strip()
     else:
         print(text); ch=input("> ").strip()
     if ch == "4":
@@ -426,12 +431,12 @@ def process_stream(input_path, sorting_mode, domains_to_use, db_path, invalid_pa
             # ensure perfectly clean start before progress draws
             hard_clear(); show_header()
             progress = Progress(
-                TextColumn("[bold blue]Processing[/bold blue]"),
-                BarColumn(bar_width=None),
-                TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
-                TextColumn("•"),
-                TextColumn("{task.completed:>12,d} / {task.total:>12,d} bytes"),
-                TextColumn("•"),
+                TextColumn("[bold bright_cyan]⚡ Processing[/bold bright_cyan]"),
+                BarColumn(bar_width=None, complete_style="bright_green", finished_style="bright_blue"),
+                TextColumn("[bold bright_white]{task.percentage:>3.0f}%[/bold bright_white]"),
+                TextColumn("[dim]•[/dim]"),
+                TextColumn("[cyan]{task.completed:>12,d}[/cyan] [dim]/[/dim] [bright_white]{task.total:>12,d}[/bright_white] [dim]bytes[/dim]"),
+                TextColumn("[dim]•[/dim]"),
                 TransferSpeedColumn(),
                 TimeElapsedColumn(), TimeRemainingColumn(),
                 transient=True, refresh_per_second=12, console=console
@@ -484,10 +489,10 @@ def main():
     hard_clear(); show_header()
     p=pick_file_via_dialog()
     if not p:
-        (console.print("[red]No file selected. Exiting.[/red]") if USE_RICH else print("No file selected."))
+        (console.print("[bold red]⚠ No file selected. Exiting.[/bold red]") if USE_RICH else print("No file selected."))
         pause_and_exit(); sys.exit(1)
     if not os.path.exists(p):
-        (console.print("[red]Selected file does not exist.[/red]") if USE_RICH else print("Selected file does not exist."))
+        (console.print("[bold red]⚠ Selected file does not exist.[/bold red]") if USE_RICH else print("Selected file does not exist."))
         pause_and_exit(); sys.exit(1)
 
     mode=ask_sorting_choice()
@@ -503,19 +508,19 @@ def main():
         elif choice=="2":
             domains=prompt_domains_input()
             while not domains:
-                (console.print("[yellow]No valid domains. Try again.[/yellow]") if USE_RICH else print("No valid domains. Try again."))
+                (console.print("[bold yellow]⚠ No valid domains. Try again.[/bold yellow]") if USE_RICH else print("No valid domains. Try again."))
                 domains=prompt_domains_input()
             domains_to_use=sorted(set(saved)|set(domains)); save_domains(domains_to_use)
         elif choice=="3":
             domains=prompt_domains_input()
             while not domains:
-                (console.print("[yellow]No valid domains. Try again.[/yellow]") if USE_RICH else print("No valid domains. Try again."))
+                (console.print("[bold yellow]⚠ No valid domains. Try again.[/bold yellow]") if USE_RICH else print("No valid domains. Try again."))
                 domains=prompt_domains_input()
             domains_to_use=domains; save_domains(domains_to_use)
         else:
             domains=prompt_domains_input()
             while not domains:
-                (console.print("[yellow]No valid domains. Try again.[/yellow]") if USE_RICH else print("No valid domains. Try again."))
+                (console.print("[bold yellow]⚠ No valid domains. Try again.[/bold yellow]") if USE_RICH else print("No valid domains. Try again."))
                 domains=prompt_domains_input()
             domains_to_use=domains
         domains_to_use=[d for d in domains_to_use if d and d!="unknown"]
@@ -557,18 +562,21 @@ def main():
     # Final screen only
     hard_clear(); show_header()
     if USE_RICH:
-        console.print(Panel.fit(out_dir, title="Output folder", border_style="white"))
-        table=Table(title="Domain summary", show_lines=False, expand=False)
+        console.print(Panel.fit(f"[bright_cyan]{out_dir}[/bright_cyan]", title="[bold bright_white]📁 Output Folder[/bold bright_white]", border_style="bright_blue", padding=(0, 2)))
+        console.print()  # Add spacing
+        table=Table(title="[bold bright_cyan]📊 Domain Summary[/bold bright_cyan]", show_lines=False, expand=False, border_style="bright_blue", header_style="bold bright_white")
         for c,j in [("Domain",None),("Founds","right"),("Duplicates","right"),("Dup %","right"),("Uniques","right")]:
-            table.add_column(c, justify=j or "left", style="bold" if c=="Domain" else None)
+            table.add_column(c, justify=j or "left", style="bright_cyan" if c=="Domain" else "bright_white")
         for domain,founds,dups,dup_pct,uniqs in summary:
-            table.add_row(domain,str(founds),str(dups),f"{dup_pct}%",str(uniqs))
+            dup_color = "red" if dup_pct > 50 else ("yellow" if dup_pct > 25 else "green")
+            table.add_row(f"[bold]{domain}[/bold]", str(founds), str(dups), f"[{dup_color}]{dup_pct}%[/{dup_color}]", f"[bright_green]{uniqs}[/bright_green]")
         console.print(table)
-        footer=(f"[bold]Mode[/bold]: {mode}:pass\n"
-                f"[bold]Domains matched in file[/bold]: {len(summary)}\n"
-                f"[bold]Invalid lines file[/bold]: {invalid_path}\n\n"
-                f"[dim]{BRAND}[/dim]")
-        console.print(Panel.fit(footer, title="Summary", border_style="green"))
+        console.print()  # Add spacing
+        footer=(f"[bold bright_white]Mode:[/bold bright_white] [cyan]{mode}:pass[/cyan]\n"
+                f"[bold bright_white]Domains matched:[/bold bright_white] [bright_green]{len(summary)}[/bright_green]\n"
+                f"[bold bright_white]Invalid lines:[/bold bright_white] [dim]{invalid_path}[/dim]\n\n"
+                f"[dim italic]{BRAND}[/dim italic]")
+        console.print(Panel.fit(footer, title="[bold bright_green]✓ Summary[/bold bright_green]", border_style="green", padding=(1, 2)))
     else:
         print(f"Output folder: {out_dir}\n")
         for domain,founds,dups,dup_pct,uniqs in summary:

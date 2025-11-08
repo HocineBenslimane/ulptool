@@ -222,11 +222,6 @@ def parse_line(line):
     ln = ARROW_PATTERN.sub('', ln).strip()
     if not ln: return None
 
-    # Remove common brackets/quotes that might wrap fields (but preserve in passwords)
-    # Only clean brackets from the beginning/end to avoid removing password chars
-    ln = ln.strip('[](){}<>"\'')
-    if not ln: return None
-
     # Strip URL prefixes if present
     ln = URL_PREFIX.sub('', ln)
 
@@ -395,13 +390,15 @@ FROM entries GROUP BY domain ORDER BY founds DESC;"""
 SELECT_DOMAIN_ROWS = "SELECT username, password FROM entries WHERE domain = ?;"
 
 def ask_sorting_choice():
-    text = "Choose sorting type:\n  1) email:pass\n  2) phone/number:pass\n  3) all (email, phone, numeric IDs)"
+    text = "Choose sorting type:\n  1) email:pass\n  2) phone/number:pass\n  3) all (email, phone, numeric IDs)\n  4) user:pass (any username - no filtering)"
     if USE_RICH:
         console.print(Panel.fit(text, title="Sorting", border_style="green"))
-        ch=Prompt.ask("Choose [1-3]").strip()
+        ch=Prompt.ask("Choose [1-4]").strip()
     else:
         print(text); ch=input("> ").strip()
-    if ch == "3":
+    if ch == "4":
+        return "any"
+    elif ch == "3":
         return "all"
     elif ch == "2":
         return "number"
@@ -466,6 +463,7 @@ def process_stream(input_path, sorting_mode, domains_to_use, db_path, invalid_pa
                     if not (is_email(username) or is_phone_like(username) or is_numeric_id(username)):
                         if USE_RICH: progress.update(task, advance=by)
                         continue
+                # sorting_mode == "any" - accept all usernames, no filtering
                 domain=effective_domain(service)
                 if domain not in domains_to_use:
                     if USE_RICH: progress.update(task, advance=by); continue

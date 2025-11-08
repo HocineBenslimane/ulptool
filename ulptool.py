@@ -114,11 +114,50 @@ PIPE_SEP = re.compile(r'\|')
 EMAIL_SPACE_PASS = re.compile(r'^([^@\s]+@[^@\s]+\.[^@\s]+)\s+(.+)$')
 # Pattern for lines like "domain.com:username:password" or "service username password"
 DOMAIN_USER_PASS = re.compile(r'^([a-zA-Z0-9\.\-\_]+)\s+([^\s]+)\s+(.+)$')
+# Pattern to remove arrow symbols and line numbers (common in leak dumps)
+ARROW_PATTERN = re.compile(r'^\s*\d*\s*[→►▸➔➜➤➡︎⇒⟹]\s*')
+# Pattern for IP addresses (to detect IP-based domains)
+IP_ADDRESS = re.compile(r'^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$')
+# Pattern to match [NOT_SAVED] or similar placeholders
+NOT_SAVED_PATTERN = re.compile(r'^\[NOT[_\s]SAVED\]$', re.IGNORECASE)
+# Pattern for credentials with subdomain:email:pass format (e.g., login.live.com:user@email.com:pass)
+SUBDOMAIN_EMAIL_PASS = re.compile(r'^([a-zA-Z0-9\.\-]+\.[a-zA-Z]{2,}):([^:]+):(.+)$')
+# Pattern for package names like com.facebook.katana or com.instagram.android
+PACKAGE_NAME = re.compile(r'^(com|net|org|io)\.[a-zA-Z0-9\.\-_]+$')
+# Pattern for numeric usernames (IDs)
+NUMERIC_USERNAME = re.compile(r'^\d+[\.\-\d]*$')
+# Enhanced pattern for email with special characters in local part
+EMAIL_ENHANCED = re.compile(r'^[a-zA-Z0-9\.\-_\+]+@[a-zA-Z0-9\.\-]+\.[a-zA-Z]{2,}$')
+# Pattern for credentials with extra fields (e.g., amount or other metadata)
+EXTRA_FIELDS = re.compile(r':.*?:.*?:')  # Detects 3+ colons
 
-def is_email(s): return bool(EMAIL_RE.match(s or ""))
+def is_email(s):
+    """Check if string is a valid email address"""
+    if not s: return False
+    return bool(EMAIL_RE.match(s) or EMAIL_ENHANCED.match(s))
+
 def is_phone_like(s):
+    """Check if string looks like a phone number"""
     if not s or not PHONE_LAX_RE.match(s): return False
-    digits = re.sub(r'\D', '', s); return 7 <= len(digits) <= 20
+    digits = re.sub(r'\D', '', s)
+    return 7 <= len(digits) <= 20
+
+def is_numeric_id(s):
+    """Check if string is a numeric ID"""
+    return bool(s and NUMERIC_USERNAME.match(s))
+
+def is_ip_address(s):
+    """Check if string is an IP address"""
+    if not s: return False
+    if IP_ADDRESS.match(s):
+        # Validate IP ranges (0-255)
+        parts = s.split('.')
+        return all(0 <= int(p) <= 255 for p in parts)
+    return False
+
+def is_package_name(s):
+    """Check if string is a package name (e.g., com.facebook.katana)"""
+    return bool(s and PACKAGE_NAME.match(s))
 
 def pick_file_via_dialog():
     root = Tk(); root.withdraw(); root.attributes('-topmost', True)
@@ -139,25 +178,53 @@ def _package_like_to_domain(s):
     return f"{brand}.com" if re.match(r'^[a-z0-9\-]+$', brand) else None
 
 def effective_domain(token):
+    """Extract and normalize the effective domain from various input formats"""
     s=(token or "").strip().lower()
     if not s: return "unknown"
-    if HAVE_TLDEXTRACT:
-        ext=_extractor(s)
-        if ext.domain and ext.suffix: return f"{ext.domain}.{ext.suffix}"
+
+    # Handle IP addresses specially
+    if is_ip_address(s):
+        return f"ip_{s.replace('.', '_')}"
+
+    # Handle package names (e.g., com.facebook.katana -> facebook.com)
     pkg=_package_like_to_domain(s)
     if pkg: return pkg
-    s=re.sub(r'[^a-z0-9\.\-]', '.', s); parts=[p for p in s.split('.') if p]
+
+    # Use tldextract if available for best results
+    if HAVE_TLDEXTRACT:
+        ext=_extractor(s)
+        if ext.domain and ext.suffix:
+            # Include subdomain for certain services (login, auth, api, etc.)
+            if ext.subdomain and ext.subdomain in ['login', 'auth', 'api', 'www', 'm', 'mobile', 'accounts', 'signup', 'signin']:
+                return f"{ext.subdomain}.{ext.domain}.{ext.suffix}"
+            return f"{ext.domain}.{ext.suffix}"
+
+    # Fallback: manual parsing
+    s=re.sub(r'[^a-z0-9\.\-]', '.', s)
+    parts=[p for p in s.split('.') if p]
     if not parts: return "unknown"
-    if len(parts)>=3 and len(parts[-1])==2 and len(parts[-2])<=3: return '.'.join(parts[-3:])
-    if len(parts)>=2: return '.'.join(parts[-2:])
+
+    # Handle country code TLDs (e.g., .co.uk, .com.br)
+    if len(parts)>=3 and len(parts[-1])==2 and len(parts[-2])<=3:
+        return '.'.join(parts[-3:])
+
+    # Standard domain.tld
+    if len(parts)>=2:
+        return '.'.join(parts[-2:])
+
     return parts[0]
 
 def parse_line(line):
     ln=(line or "").strip()
     if not ln: return None
 
-    # Remove common brackets/quotes that might wrap fields
-    ln = BRACKET_PATTERN.sub('', ln).strip()
+    # Remove arrow symbols and line numbers (common in leak dumps)
+    ln = ARROW_PATTERN.sub('', ln).strip()
+    if not ln: return None
+
+    # Remove common brackets/quotes that might wrap fields (but preserve in passwords)
+    # Only clean brackets from the beginning/end to avoid removing password chars
+    ln = ln.strip('[](){}<>"\'')
     if not ln: return None
 
     # Strip URL prefixes if present
@@ -169,10 +236,12 @@ def parse_line(line):
         if len(parts) >= 3:
             svc, user = parts[0].strip(), parts[1].strip()
             pw = '|'.join(parts[2:]).strip()
-            if user and pw: return (svc, user, pw)
+            if user and pw and not NOT_SAVED_PATTERN.match(pw):
+                return (svc, user, pw)
         elif len(parts) == 2:
             user, pw = parts[0].strip(), parts[1].strip()
-            if user and pw: return ("unknown", user, pw)
+            if user and pw and not NOT_SAVED_PATTERN.match(pw):
+                return ("unknown", user, pw)
 
     # Strategy 2: Try tab separator (TSV format)
     if '\t' in ln:
@@ -180,41 +249,66 @@ def parse_line(line):
         if len(parts) >= 3:
             svc, user = parts[0].strip(), parts[1].strip()
             pw = '\t'.join(parts[2:]).strip()
-            if user and pw: return (svc, user, pw)
+            if user and pw and not NOT_SAVED_PATTERN.match(pw):
+                return (svc, user, pw)
         elif len(parts) == 2:
             user, pw = parts[0].strip(), parts[1].strip()
-            if user and pw: return ("unknown", user, pw)
+            if user and pw and not NOT_SAVED_PATTERN.match(pw):
+                return ("unknown", user, pw)
 
-    # Strategy 3: Standard separators (: ; , with optional spaces)
-    parts = SEP_PATTERN.split(ln)
-    if len(parts) >= 3:
-        svc, user = parts[0].strip(), parts[1].strip()
-        pw = ':'.join(p.strip() for p in parts[2:])
-        if user and pw: return (svc, user, pw)
+    # Strategy 3: Enhanced subdomain:email:pass pattern (e.g., login.live.com:email@domain.com:password)
+    match = SUBDOMAIN_EMAIL_PASS.match(ln)
+    if match:
+        svc, user, pw = match.group(1), match.group(2).strip(), match.group(3).strip()
+        if user and pw and not NOT_SAVED_PATTERN.match(pw):
+            return (svc, user, pw)
 
-    # Strategy 4: Email followed by password (email@domain.com password123)
+    # Strategy 4: Standard separators (: ; , with optional spaces)
+    # Handle multiple colons intelligently (for passwords containing colons)
+    if ':' in ln:
+        parts = ln.split(':')
+        if len(parts) >= 3:
+            svc, user = parts[0].strip(), parts[1].strip()
+            # Join remaining parts as password (in case password contains colons)
+            pw = ':'.join(parts[2:]).strip()
+            if user and pw and not NOT_SAVED_PATTERN.match(pw):
+                return (svc, user, pw)
+        elif len(parts) == 2:
+            # Simple user:pass format
+            user, pw = parts[0].strip(), parts[1].strip()
+            if user and pw and not NOT_SAVED_PATTERN.match(pw):
+                return ("unknown", user, pw)
+
+    # Strategy 5: Semicolon or comma separators
+    for sep_char in [';', ',']:
+        if sep_char in ln:
+            parts = ln.split(sep_char)
+            if len(parts) >= 3:
+                svc, user = parts[0].strip(), parts[1].strip()
+                pw = sep_char.join(parts[2:]).strip()
+                if user and pw and not NOT_SAVED_PATTERN.match(pw):
+                    return (svc, user, pw)
+
+    # Strategy 6: Email followed by password (email@domain.com password123)
     match = EMAIL_SPACE_PASS.match(ln)
     if match:
         email, pw = match.group(1), match.group(2).strip()
-        if email and pw: return ("unknown", email, pw)
+        if email and pw and not NOT_SAVED_PATTERN.match(pw):
+            return ("unknown", email, pw)
 
-    # Strategy 5: Three whitespace-separated fields (domain username password)
+    # Strategy 7: Three whitespace-separated fields (domain username password)
     parts2 = FALLBACK_SPLIT.split(ln)
     if len(parts2) >= 3:
         svc, user = parts2[0].strip(), parts2[1].strip()
         pw = ' '.join(parts2[2:]).strip()
-        if user and pw: return (svc, user, pw)
+        if user and pw and not NOT_SAVED_PATTERN.match(pw):
+            return (svc, user, pw)
 
-    # Strategy 6: Simple user:pass (colon separator, 2 parts)
-    if ':' in ln:
-        u, p = ln.split(':', 1)
-        u, p = u.strip(), p.strip()
-        if u and p: return ("unknown", u, p)
-
-    # Strategy 7: Two whitespace-separated fields (username password)
+    # Strategy 8: Two whitespace-separated fields (username password)
     if len(parts2) == 2:
         user, pw = parts2[0].strip(), parts2[1].strip()
-        if user and pw: return ("unknown", user, pw)
+        if user and pw and not NOT_SAVED_PATTERN.match(pw):
+            return ("unknown", user, pw)
 
     return None
 
@@ -301,13 +395,18 @@ FROM entries GROUP BY domain ORDER BY founds DESC;"""
 SELECT_DOMAIN_ROWS = "SELECT username, password FROM entries WHERE domain = ?;"
 
 def ask_sorting_choice():
-    text = "Choose sorting type:\n  1) email:pass\n  2) number:pass"
+    text = "Choose sorting type:\n  1) email:pass\n  2) phone/number:pass\n  3) all (email, phone, numeric IDs)"
     if USE_RICH:
         console.print(Panel.fit(text, title="Sorting", border_style="green"))
-        ch=Prompt.ask("Choose [1-2]").strip()
+        ch=Prompt.ask("Choose [1-3]").strip()
     else:
         print(text); ch=input("> ").strip()
-    return "number" if ch=="2" else "email"
+    if ch == "3":
+        return "all"
+    elif ch == "2":
+        return "number"
+    else:
+        return "email"
 
 # ---------- Processing ----------
 def process_stream(input_path, sorting_mode, domains_to_use, db_path, invalid_path):
@@ -353,12 +452,20 @@ def process_stream(input_path, sorting_mode, domains_to_use, db_path, invalid_pa
                     if USE_RICH: progress.update(task, advance=by)
                     continue
                 service,username,password=parsed
-                if sorting_mode=="email":
+                # Filter based on sorting mode
+                if sorting_mode == "email":
                     if not is_email(username):
-                        if USE_RICH: progress.update(task, advance=by); continue
-                else:
-                    if not is_phone_like(username):
-                        if USE_RICH: progress.update(task, advance=by); continue
+                        if USE_RICH: progress.update(task, advance=by)
+                        continue
+                elif sorting_mode == "number":
+                    if not (is_phone_like(username) or is_numeric_id(username)):
+                        if USE_RICH: progress.update(task, advance=by)
+                        continue
+                elif sorting_mode == "all":
+                    # Accept email, phone, or numeric ID
+                    if not (is_email(username) or is_phone_like(username) or is_numeric_id(username)):
+                        if USE_RICH: progress.update(task, advance=by)
+                        continue
                 domain=effective_domain(service)
                 if domain not in domains_to_use:
                     if USE_RICH: progress.update(task, advance=by); continue

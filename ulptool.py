@@ -301,13 +301,21 @@ FROM entries GROUP BY domain ORDER BY founds DESC;"""
 SELECT_DOMAIN_ROWS = "SELECT username, password FROM entries WHERE domain = ?;"
 
 def ask_sorting_choice():
-    text = "Choose sorting type:\n  1) email:pass\n  2) number:pass"
+    text = "Choose sorting type:\n  1) email:pass\n  2) phone:pass\n  3) user:pass (any username)"
     if USE_RICH:
         console.print(Panel.fit(text, title="Sorting", border_style="green"))
-        ch=Prompt.ask("Choose [1-2]").strip()
+        ch=Prompt.ask("Choose [1-3]").strip()
     else:
         print(text); ch=input("> ").strip()
-    return "number" if ch=="2" else "email"
+    while ch not in {"1", "2", "3"}:
+        (console.print("[red]Please choose 1–3.[/red]") if USE_RICH else print("Please choose 1–3."))
+        ch=input("> ").strip()
+    if ch == "1":
+        return "email"
+    elif ch == "2":
+        return "phone"
+    else:
+        return "user"
 
 # ---------- Processing ----------
 def process_stream(input_path, sorting_mode, domains_to_use, db_path, invalid_path):
@@ -353,12 +361,17 @@ def process_stream(input_path, sorting_mode, domains_to_use, db_path, invalid_pa
                     if USE_RICH: progress.update(task, advance=by)
                     continue
                 service,username,password=parsed
-                if sorting_mode=="email":
+                # Filter based on sorting mode
+                if sorting_mode == "email":
                     if not is_email(username):
-                        if USE_RICH: progress.update(task, advance=by); continue
-                else:
+                        if USE_RICH: progress.update(task, advance=by)
+                        continue
+                elif sorting_mode == "phone":
                     if not is_phone_like(username):
-                        if USE_RICH: progress.update(task, advance=by); continue
+                        if USE_RICH: progress.update(task, advance=by)
+                        continue
+                # For "user" mode, accept any username (no filtering)
+
                 domain=effective_domain(service)
                 if domain not in domains_to_use:
                     if USE_RICH: progress.update(task, advance=by); continue

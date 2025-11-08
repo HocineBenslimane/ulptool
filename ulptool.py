@@ -94,10 +94,26 @@ def pause_and_exit():
             pass
 
 # ---------- Regex / parsing ----------
+# Primary separator pattern (colon, pipe, semicolon, comma)
 SEP_PATTERN = re.compile(r'[:\|;,]\s*')
+# Tab separator pattern
+TAB_PATTERN = re.compile(r'\t+')
+# Fallback whitespace split
 FALLBACK_SPLIT = re.compile(r'\s+')
+# URL prefix pattern (strip http://, https://, etc.)
+URL_PREFIX = re.compile(r'^(?:https?://|ftp://|www\.)')
+# Email validation
 EMAIL_RE = re.compile(r'^[^@\s]+@[^@\s]+\.[^@\s]+$')
+# Phone number validation (relaxed)
 PHONE_LAX_RE = re.compile(r'^[\d\+\-\s\(\)]+$')
+# Pattern to match lines with brackets/quotes around fields
+BRACKET_PATTERN = re.compile(r'[\[\]\(\)\{\}<>"\']')
+# Pattern to detect and extract from "service|user|pass" or "domain|email|password" format
+PIPE_SEP = re.compile(r'\|')
+# Pattern for lines like "email@domain.com password123"
+EMAIL_SPACE_PASS = re.compile(r'^([^@\s]+@[^@\s]+\.[^@\s]+)\s+(.+)$')
+# Pattern for lines like "domain.com:username:password" or "service username password"
+DOMAIN_USER_PASS = re.compile(r'^([a-zA-Z0-9\.\-\_]+)\s+([^\s]+)\s+(.+)$')
 
 def is_email(s): return bool(EMAIL_RE.match(s or ""))
 def is_phone_like(s):
@@ -139,19 +155,67 @@ def effective_domain(token):
 def parse_line(line):
     ln=(line or "").strip()
     if not ln: return None
-    parts=SEP_PATTERN.split(ln)
-    if len(parts)>=3:
+
+    # Remove common brackets/quotes that might wrap fields
+    ln = BRACKET_PATTERN.sub('', ln).strip()
+    if not ln: return None
+
+    # Strip URL prefixes if present
+    ln = URL_PREFIX.sub('', ln)
+
+    # Strategy 1: Try pipe separator first (common in dumps: service|user|pass)
+    if '|' in ln:
+        parts = ln.split('|')
+        if len(parts) >= 3:
+            svc, user = parts[0].strip(), parts[1].strip()
+            pw = '|'.join(parts[2:]).strip()
+            if user and pw: return (svc, user, pw)
+        elif len(parts) == 2:
+            user, pw = parts[0].strip(), parts[1].strip()
+            if user and pw: return ("unknown", user, pw)
+
+    # Strategy 2: Try tab separator (TSV format)
+    if '\t' in ln:
+        parts = TAB_PATTERN.split(ln)
+        if len(parts) >= 3:
+            svc, user = parts[0].strip(), parts[1].strip()
+            pw = '\t'.join(parts[2:]).strip()
+            if user and pw: return (svc, user, pw)
+        elif len(parts) == 2:
+            user, pw = parts[0].strip(), parts[1].strip()
+            if user and pw: return ("unknown", user, pw)
+
+    # Strategy 3: Standard separators (: ; , with optional spaces)
+    parts = SEP_PATTERN.split(ln)
+    if len(parts) >= 3:
         svc, user = parts[0].strip(), parts[1].strip()
-        pw=':'.join(p.strip() for p in parts[2:])
-        return (svc,user,pw) if (user and pw) else None
-    parts2=FALLBACK_SPLIT.split(ln)
-    if len(parts2)>=3:
-        svc,user = parts2[0].strip(), parts2[1].strip()
-        pw=' '.join(parts2[2:]).strip()
-        return (svc,user,pw) if (user and pw) else None
+        pw = ':'.join(p.strip() for p in parts[2:])
+        if user and pw: return (svc, user, pw)
+
+    # Strategy 4: Email followed by password (email@domain.com password123)
+    match = EMAIL_SPACE_PASS.match(ln)
+    if match:
+        email, pw = match.group(1), match.group(2).strip()
+        if email and pw: return ("unknown", email, pw)
+
+    # Strategy 5: Three whitespace-separated fields (domain username password)
+    parts2 = FALLBACK_SPLIT.split(ln)
+    if len(parts2) >= 3:
+        svc, user = parts2[0].strip(), parts2[1].strip()
+        pw = ' '.join(parts2[2:]).strip()
+        if user and pw: return (svc, user, pw)
+
+    # Strategy 6: Simple user:pass (colon separator, 2 parts)
     if ':' in ln:
-        u,p = ln.split(':',1); u,p=u.strip(),p.strip()
-        if u and p: return ("unknown",u,p)
+        u, p = ln.split(':', 1)
+        u, p = u.strip(), p.strip()
+        if u and p: return ("unknown", u, p)
+
+    # Strategy 7: Two whitespace-separated fields (username password)
+    if len(parts2) == 2:
+        user, pw = parts2[0].strip(), parts2[1].strip()
+        if user and pw: return ("unknown", user, pw)
+
     return None
 
 # ---------- Saved domains ----------
